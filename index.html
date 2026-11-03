@@ -5,6 +5,17 @@
 </head>
 <body>
   <h1>Sales Tracker</h1>
+
+  <h2>Add a sale</h2>
+  <form id="saleForm">
+    <input id="product" placeholder="Product" required>
+    <input id="city" placeholder="City" required>
+    <input id="amount" type="number" step="0.01" placeholder="Amount" required>
+    <button type="submit">Add sale</button>
+  </form>
+  <p id="message"></p>
+
+  <h2>All sales</h2>
   <button onclick="loadSales()">Load sales</button>
   <ul id="list"></ul>
 
@@ -22,6 +33,34 @@
         list.appendChild(item);
       }
     }
+
+    async function addSale(event) {
+      event.preventDefault();
+
+      const sale = {
+        product: document.getElementById("product").value,
+        city: document.getElementById("city").value,
+        amount: Number(document.getElementById("amount").value),
+      };
+
+      const res = await fetch("http://127.0.0.1:8000/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sale),
+      });
+
+      const message = document.getElementById("message");
+      if (res.status === 201) {
+        const saved = await res.json();
+        message.textContent = "Saved " + saved.product + " with id " + saved.id;
+        document.getElementById("saleForm").reset();
+        loadSales();
+      } else {
+        message.textContent = "Error: could not save the sale";
+      }
+    }
+
+    document.getElementById("saleForm").addEventListener("submit", addSale);
   </script>
 </body>
 </html>
