@@ -17,6 +17,11 @@ class Sale(BaseModel):
     city: str
     amount: float
 
+class SaleUpdate(BaseModel):
+    product: str | None = None
+    city: str | None = None
+    amount: float | None = None
+
 # ---------- database setup ----------
 def get_db():
     conn = sqlite3.connect("sales.db")
@@ -76,3 +81,45 @@ def create_sale(sale: Sale):
     new_id = cursor.lastrowid
     conn.close()
     return {"id": new_id, **sale.model_dump()}
+
+@app.put("/sales/{sale_id}")
+def replace_sale(sale_id: int, sale: Sale):
+    conn = get_db()
+    cursor = conn.execute(
+        "UPDATE sales SET product = ?, city = ?, amount = ? WHERE id = ?",
+        (sale.product, sale.city, sale.amount, sale_id),
+    )
+    conn.commit()
+    conn.close()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    return {"id": sale_id, **sale.model_dump()}
+
+@app.patch("/sales/{sale_id}")
+def update_sale(sale_id: int, changes: SaleUpdate):
+    fields = changes.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    set_part = ", ".join(f"{name} = ?" for name in fields)
+    conn = get_db()
+    cursor = conn.execute(
+        f"UPDATE sales SET {set_part} WHERE id = ?",
+        (*fields.values(), sale_id),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Sale not found")
+    row = conn.execute("SELECT * FROM sales WHERE id = ?", (sale_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+@app.delete("/sales/{sale_id}")
+def delete_sale(sale_id: int):
+    conn = get_db()
+    cursor = conn.execute("DELETE FROM sales WHERE id = ?", (sale_id,))
+    conn.commit()
+    conn.close()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    return {"message": "Sale deleted"}

@@ -18,6 +18,9 @@
 | GET | `/sales` | All sales, 200 |
 | GET | `/sales/{sale_id}` | One sale, 200; 404 if it doesn't exist; 422 if the id isn't a number |
 | POST | `/sales` | Add a sale, 201; 422 if a field is missing or the wrong type |
+| PUT | `/sales/{sale_id}` | Replace the whole sale (all 3 fields required), 200; 404 if missing; 422 if a field is missing |
+| PATCH | `/sales/{sale_id}` | Change only the fields sent, 200; 400 if the body is empty; 404 if missing |
+| DELETE | `/sales/{sale_id}` | Delete the sale, 200; 404 if missing |
 
 ---
 
@@ -110,6 +113,59 @@
 |---|---|---|
 | `{"product":"Pen","city":"Pune"}` (no amount) | Pydantic: `amount` is required | 422, `"Field required"` |
 | `{"product":"Pen","city":"Pune","amount":"abc"}` | Pydantic: can't turn "abc" into a float | 422 |
+
+---
+
+## PUT vs PATCH vs DELETE
+
+| | PUT | PATCH | DELETE |
+|---|---|---|---|
+| Meaning | **Replace** the whole record | **Change part** of the record | **Remove** the record |
+| Body | All fields (`Sale` model, all required) | Only the fields to change (`SaleUpdate`, all optional) | No body |
+| SQL | `UPDATE sales SET product = ?, city = ?, amount = ? WHERE id = ?` | `UPDATE sales SET <only sent fields> WHERE id = ?` | `DELETE FROM sales WHERE id = ?` |
+| Not found | `cursor.rowcount == 0` → 404 | same | same |
+
+**New concepts:**
+- `cursor.rowcount`: how many rows the UPDATE/DELETE changed. 0 means no sale had that id → 404.
+- `SaleUpdate` with `str | None = None`: every field is optional, so PATCH can send just one.
+- `model_dump(exclude_unset=True)`: gives only the fields the client actually sent, e.g. `{"amount": 150}`.
+- Building the SET part: `", ".join(f"{name} = ?" for name in fields)` → `"amount = ?"`. The column names come from our own model, never from the user, and the values still go through `?`, so it's safe from SQL injection.
+
+### Dry run 5: PUT /sales/1 with `{"product": "Pencil", "city": "Pune", "amount": 30}`
+
+| Step | What happens | Values |
+|---|---|---|
+| 1 | FastAPI matches `@app.put("/sales/{sale_id}")`; `"1"` → int 1 | `sale_id = 1` |
+| 2 | Pydantic builds `Sale`; all 3 fields present ✔ | `sale.product = "Pencil"` |
+| 3 | `UPDATE sales SET product = ?, city = ?, amount = ? WHERE id = ?` with `("Pencil", "Pune", 30.0, 1)` | 1 row changed |
+| 4 | `commit()`; `rowcount = 1` → not 0 | — |
+| 5 | Returns 200 | `{"id": 1, "product": "Pencil", "city": "Pune", "amount": 30.0}` |
+
+PUT with only `{"product": "X"}` → **422** (city and amount are required for a full replace). PUT on id 99 → `rowcount = 0` → **404**.
+
+### Dry run 6: PATCH /sales/2 with `{"amount": 150}`
+
+| Step | What happens | Values |
+|---|---|---|
+| 1 | FastAPI matches `@app.patch(...)`; builds `SaleUpdate` | `product=None, city=None, amount=150.0` |
+| 2 | `model_dump(exclude_unset=True)` keeps only what was sent | `fields = {"amount": 150.0}` |
+| 3 | Build the SET part | `set_part = "amount = ?"` |
+| 4 | `UPDATE sales SET amount = ? WHERE id = ?` with `(150.0, 2)` | 1 row changed |
+| 5 | `commit()`; rowcount 1 → read the row back | — |
+| 6 | Returns 200 with the full updated sale | `{"id": 2, "product": "Notebook", "city": "Mumbai", "amount": 150.0}` |
+
+PATCH with `{}` → `fields` is empty → **400** "Nothing to update". PATCH on id 99 → **404**.
+
+### Dry run 7: DELETE /sales/3
+
+| Step | What happens | Values |
+|---|---|---|
+| 1 | FastAPI matches `@app.delete(...)` | `sale_id = 3` |
+| 2 | `DELETE FROM sales WHERE id = ?` with `(3,)` | `rowcount = 1` |
+| 3 | `commit()`; returns 200 | `{"message": "Sale deleted"}` |
+| 4 | Same DELETE again → `rowcount = 0` | **404** "Sale not found" |
+
+Try all three at http://127.0.0.1:8000/docs.
 
 ---
 
