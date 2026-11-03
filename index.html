@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Sales Tracker</title>
+</head>
+<body>
+  <h1>Sales Tracker</h1>
+  <button onclick="loadSales()">Load sales</button>
+  <ul id="list"></ul>
+
+  <script>
+    async function loadSales() {
+      const res = await fetch("http://127.0.0.1:8000/sales");
+      const sales = await res.json();
+
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+
+      for (const sale of sales) {
+        const item = document.createElement("li");
+        item.textContent = sale.product + " - " + sale.city + " - Rs " + sale.amount;
+        list.appendChild(item);
+      }
+    }
+  </script>
+</body>
+</html>
